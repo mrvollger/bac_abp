@@ -5,29 +5,33 @@ import re
 
 SNAKEMAKE_DIR = os.path.dirname(workflow.snakefile)
 shell.executable("/bin/bash")
-shell.prefix("source %s/env_BACtoASM.cfg; " % SNAKEMAKE_DIR)
+# set -x (exapnds vars)
+# set -v (does not expand)
+shell.prefix("source %s/env_BACtoASM.cfg; set -x " % SNAKEMAKE_DIR)
 #/net/eichler/vol2/home/mvollger/projects/bac_abp/env_BACtoASM.cfg
 
 """
 Dependencies: should be taken care of by loading the env_PSV.cfg file
 """
-
-blasrDir = '~mchaisso/projects/blasr-repo/blasr'
-base = '/net/eichler/vol5/home/mchaisso/projects/AssemblyByPhasing/scripts/abp'
-#base2="/net/eichler/vol21/projects/bac_assembly/nobackups/scripts"
+# loocation of my additional scripts for assembly by phasing
 base2="/net/eichler/vol2/home/mvollger/projects/abp"
+# options for regular blasr
 blasr_options ="-bestn 1 -minMapQV 30 -minAlignLength 2000 -minPctIdentity 70 -clipping subread "
 blasr_options2="-bestn 10 -maxMatch 15 -minMapQV 0 -minAlignLength 1000 "
-blasr_options_new"--bestn 1 --minMapQV 30 --minAlnLength 2000 --minPctAccuracy 75 --clipping subread "
+# options for the verison of blasr in pitchfork
+pitchfork="source /net/eichler/vol2/home/mvollger/projects/builds/pitchfork/setup_pitchfork.sh && "
+blasr_options_new="--bestn 1  --minAlnLength 2000 --minPctAccuracy 75 "
 #CANU_DIR="/net/eichler/vol5/home/mchaisso/software/canu/Linux-amd64/bin"
 utils="/net/eichler/vol2/home/mvollger/projects/utility"
-CANU_DIR="/net/eichler/vol21/projects/bac_assembly/nobackups/canu/Linux-amd64/bin"
+#CANU_DIR="/net/eichler/vol21/projects/bac_assembly/nobackups/canu/Linux-amd64/bin"
+CANU_DIR="/net/eichler/vol2/home/mvollger/projects/builds/canu/Linux-amd64/bin"
 vector="/net/eichler/vol4/home/jlhudd/projects/pacbio/vector/vector.fasta"
 
 
 
 rule all:	
-    input: 'h5_mapped_orgin.bam',
+    input: 
+        bam1="fofn_orgin.bam",
         plot=dynamic("{contigID}/depth.png"),
         contigs=dynamic("{contigID}/ref.fasta"),
         contigSam=dynamic("{contigID}/reads.orig.sam"),
@@ -37,62 +41,89 @@ rule all:
         asm='assembly/asm.unitigs.fasta',
     message: 'Running BACtoAsm'
 
-rule mapBasToFasta:
+
+rule baxToBam:
+    input:
+        bax="bax.fofn",
+    output:
+        subreads="movie.subreads.bam",
+    shell:
+        """
+        {pitchfork} bax2bam -f {input.bax} --subread -o movie 
+        """
+rule inputFofn:
+    input:
+        subreads="movie.subreads.bam",
+    output:
+        fofn="input.fofn"
+    shell:
+        """
+        echo $(readlink -f {input.subreads} ) > {output.fofn}
+        """
+
+
+rule mapSubreadsToFasta:
     input:
         orgFasta="orgin.fasta",
-        h5fofn="bax.fofn",
+        fofn="input.fofn"
     output:
-        sam1="h5_mapped_orgin.sam"
+        bam1="fofn_orgin.bam"
     threads: 8
     shell:
         # get the alignmetn then filter the sam to not include useless stuff
         """
-        blasr {blasr_options} --nproc {threads} --bam --out temp.bam {input.h5fofn} {input.orgFasta}
-        samtools view -h -F 4 temp.sam > {output.sam1}
-        rm temp.sam
+        {pitchfork} blasr {blasr_options_new} --nproc {threads} --bam --out {output.bam1} {input.fofn} {input.orgFasta}
         """
 
-# I need to add a filter here
-# use blasr options
-# blasr reads.bam vector {blasr_options} -nproc {threads} -sam/bam? 
-# hopefully with new blasr I can drop the sam step....
-
-rule samToBam:
-    input:
-        sam1="h5_mapped_orgin.sam",
+rule findVector:
+    input:    
+        bam1="fofn_orgin.bam",
     output:
-        bam1="h5_mapped_orgin.bam",
-        bai1="h5_mapped_orgin.bam.bai",
-    threads:16
+        novector="noVectorReads.list",
+    threads: 8
+    shell:
+        # get the alignmetn then filter the sam to not include useless stuff
+        """
+        {pitchfork} blasr {blasr_options_new} --nproc {threads} --bam --out containsVector.bam \
+                --unaligned {output.novector} --noPrintUnalignedSeqs {input.bam1} {vector} 
+        """
+
+rule removeVector:
+    input:
+        novector="noVectorReads.list",
+        bam1="fofn_orgin.bam",
+    output:
+        bam="vectorTrimmed.subreads.bam",
     shell:
         """
-        samtools view -b -S {input.sam1} | samtools sort -T tmp -@ {threads} -m 4G -o {output.bam1} 
-        samtools index {output.bam1}
-        """
-
-# get fastq file to be input into canu 
-rule bamToFastq:
-    input:
-        bam1="h5_mapped_orgin.bam",
-    output:
-        readsq="reads.fastq", 
-    shell:
-        """
-        samtools fastq {input.bam1} > {output.readsq}
+        {utils}/extractBams.py {input.bam1} {input.novector} --out {output.bam}
         """
 
 # get fasta file to be input into canu 
 # I am keeping this but actualy going to use fastq now
 rule bamToFasta:
     input:
-        bam1="h5_mapped_orgin.bam",
+        bam="vectorTrimmed.subreads.bam",
     output:
-       reads="reads.fasta", 
+        reads="reads.fasta", 
     shell:
         """
-        samtools fasta {input.bam1} > {output.reads}
+        samtools fasta {input.bam} > {output.reads}
         """
 
+# get fastq file to be input into canu 
+rule bamToFastq:
+    input:
+        bam="vectorTrimmed.subreads.bam",
+        reads="reads.fasta", 
+    output:
+        readsq="reads.fastq", 
+    shell:
+        """
+        bamtools convert -format fastq -in {input.bam} -out {output.readsq}
+        #samtools fastq {input.bam} > {output.readsq}
+        # I am not very confident that eaither of these are keeping the qual info
+        """
 # run the assembly
 rule runAssembly:
     input: 

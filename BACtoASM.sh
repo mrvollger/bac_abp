@@ -1,4 +1,12 @@
 #!/bin/bash
+#$ -P eichlerlab
+#$ -l mfree=4G
+#$ -l h_rt=24:00:00
+#$ -pe serial 8
+#$ -cwd
+#$ -q eichler-short.q
+#$ -e /net/eichler/vol21/projects/bac_assembly/nobackups/bacs082016/out/$JOB_ID.e
+#$ -o /net/eichler/vol21/projects/bac_assembly/nobackups/bacs082016/out/$JOB_ID.o
 
 # these commands load the proper env for snakemake and the pipeline
 module purge
