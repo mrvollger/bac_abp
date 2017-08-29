@@ -5,7 +5,8 @@ import re
 
 SNAKEMAKE_DIR = os.path.dirname(workflow.snakefile)
 shell.executable("/bin/bash")
-shell.prefix("source %s/env_PSV.cfg; " % SNAKEMAKE_DIR)
+shell.prefix("source %s/env_BACtoASM.cfg; " % SNAKEMAKE_DIR)
+#/net/eichler/vol2/home/mvollger/projects/bac_abp/env_BACtoASM.cfg
 
 """
 Dependencies: should be taken care of by loading the env_PSV.cfg file
@@ -13,11 +14,17 @@ Dependencies: should be taken care of by loading the env_PSV.cfg file
 
 blasrDir = '~mchaisso/projects/blasr-repo/blasr'
 base = '/net/eichler/vol5/home/mchaisso/projects/AssemblyByPhasing/scripts/abp'
-base2="/net/eichler/vol21/projects/bac_assembly/nobackups/scripts"
+#base2="/net/eichler/vol21/projects/bac_assembly/nobackups/scripts"
+base2="/net/eichler/vol2/home/mvollger/projects/abp"
 blasr_options ="-bestn 1 -minMapQV 30 -minAlignLength 2000 -minPctIdentity 70 -clipping subread "
 blasr_options2="-bestn 10 -maxMatch 15 -minMapQV 0 -minAlignLength 1000 "
+blasr_options_new"--bestn 1 --minMapQV 30 --minAlnLength 2000 --minPctAccuracy 75 --clipping subread "
 #CANU_DIR="/net/eichler/vol5/home/mchaisso/software/canu/Linux-amd64/bin"
+utils="/net/eichler/vol2/home/mvollger/projects/utility"
 CANU_DIR="/net/eichler/vol21/projects/bac_assembly/nobackups/canu/Linux-amd64/bin"
+vector="/net/eichler/vol4/home/jlhudd/projects/pacbio/vector/vector.fasta"
+
+
 
 rule all:	
     input: 'h5_mapped_orgin.bam',
@@ -40,10 +47,15 @@ rule mapBasToFasta:
     shell:
         # get the alignmetn then filter the sam to not include useless stuff
         """
-        blasr {blasr_options} -nproc {threads} -sam -out temp.sam {input.h5fofn} {input.orgFasta}
+        blasr {blasr_options} --nproc {threads} --bam --out temp.bam {input.h5fofn} {input.orgFasta}
         samtools view -h -F 4 temp.sam > {output.sam1}
         rm temp.sam
         """
+
+# I need to add a filter here
+# use blasr options
+# blasr reads.bam vector {blasr_options} -nproc {threads} -sam/bam? 
+# hopefully with new blasr I can drop the sam step....
 
 rule samToBam:
     input:
@@ -58,6 +70,17 @@ rule samToBam:
         samtools index {output.bam1}
         """
 
+# get fastq file to be input into canu 
+rule bamToFastq:
+    input:
+        bam1="h5_mapped_orgin.bam",
+    output:
+        readsq="reads.fastq", 
+    shell:
+        """
+        samtools fastq {input.bam1} > {output.readsq}
+        """
+
 # get fasta file to be input into canu 
 # I am keeping this but actualy going to use fastq now
 rule bamToFasta:
@@ -68,16 +91,6 @@ rule bamToFasta:
     shell:
         """
         samtools fasta {input.bam1} > {output.reads}
-        """
-# get fastq file to be input into canu 
-rule bamToFastq:
-    input:
-        bam1="h5_mapped_orgin.bam",
-    output:
-        readsq="reads.fastq", 
-    shell:
-        """
-        samtools fastq {input.bam1} > {output.readsq}
         """
 
 # run the assembly
@@ -92,7 +105,10 @@ rule runAssembly:
         if [ -s {input} ]; then
             module load java/8u25 && {CANU_DIR}/canu -pacbio-raw {input.readsq} \
                 genomeSize=200000 -d assembly -p asm useGrid=false \
-                gnuplotTested=true  corMhapSensitivity=high corMinCoverage=1 corOutCoverage=300 \
+                stageDirectory=$TMPDIR gnuplotTested=true  \
+                corMhapSensitivity=high corMinCoverage=0 corOutCoverage=500 \
+                MhapSensitivity=low \
+                corMaxEvidenceErate=0.15 \
                 minOverlapLength=750 minReadLength=2000 \
                 maxThreads={threads} cnsThreads={threads} ovlThreads={threads} mhapThreads={threads} \
                 contigFilter="50 2000 0.75 0.75 50" \
@@ -120,7 +136,8 @@ rule maskUnitigs:
 
 
 # split the asm
-import runCmd
+#import runCmd
+from subprocess import call
 rule splitFasta:
     input:
         masked='assembly/asm.unitigs.masked.fasta'
@@ -135,7 +152,8 @@ rule splitFasta:
             name = contig.name
             names.append(name)
             #print(name)
-            runCmd.exe("mkdir -p " + name)
+            #runCmd.exe("mkdir -p " + name)
+            call(["mkdir", "-p", name])
             SeqIO.write(contig, name + "/ref.fasta", "fasta")
         
         #storage.store("contigs", names)
@@ -186,7 +204,7 @@ rule plotDepth:
         plot="{contigID}/depth.png",
     shell:
         """
-        {base2}/plotDepth.py {input.depth} {output.plot} 
+        {utils}/plotDepth.py {input.depth} {output.plot} 
         """
     
 

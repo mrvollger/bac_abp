@@ -5,8 +5,8 @@ module purge
 . /etc/profile.d/modules.sh
 module load modules modules-init modules-gs/prod modules-eichler
 module load anaconda/20161130
-base2="/net/eichler/vol21/projects/bac_assembly/nobackups/scripts"
-
+#base2="/net/eichler/vol21/projects/bac_assembly/nobackups/scripts"
+base2="/net/eichler/vol2/home/mvollger/projects/bac_abp"
 
 NPROC=$(nproc)
 echo "number of cores: $NPROC"
