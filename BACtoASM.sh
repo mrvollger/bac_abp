@@ -24,7 +24,7 @@ if [ "$1" == "unlock" ]; then
 fi
 
 #snakemake --help
-snakemake --config MINCOV=1.5 --cores $NPROC -s $base2/BACtoASM.py
+snakemake -p --config MINCOV=1.5 --cores $NPROC -s $base2/BACtoASM.py
 
 
 
